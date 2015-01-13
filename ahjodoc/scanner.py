@@ -29,6 +29,12 @@ SKIP_URL_LIST = [
     'http://openhelsinki.hel.fi/files/Suomenkielisen%20tyovaenopiston%20jk_45100/Sto%202013-08-27%20Stojk%2012%20El%20Su.zip', # wrong meeting id
     'http://openhelsinki.hel.fi/files/Suomenkielisen%20tyovaenopiston%20jk_45100/Sto%202013-08-27%20Stojk%2012%20Pk%20Su.zip', # wrong meeting id
     'http://openhelsinki.hel.fi/files/Taloushallintopalvelu-liikelaitoksen%20jk_71900/Talpa%202013-11-26%20Talpajk%205%20El%20Su.zip', # wrong meeting id
+    'http://openhelsinki.hel.fi/files/Keskusvaalilautakunta_11500/Kanslia%202014-09-02%20Kvlk%207%20El%20Su.zip', # wrong date
+    'http://openhelsinki.hel.fi/files/Liikuntalautakunta_47100/Liv%202014-10-23%20LILK%2012%20El%20Su.zip', # wrong meeting id
+    'http://openhelsinki.hel.fi/files/Pelastuslautakunta_11100/Pel%202014-06-10%20PELK%207%20El%20Su.zip', # corrupt
+    'http://openhelsinki.hel.fi/files/Liikuntalautakunta_47100/Liv%202014-10-23%20LILK%2011%20El%20Su.zip', # wrong meeting id
+    'http://openhelsinki.hel.fi/files/Liikuntalautakunta_47100/Liv%202014-10-07%20LILK%2015%20El%20Su.zip', # wrong meeting id
+    'http://openhelsinki.hel.fi/files/Taidemuseo_46102/Museonjohtaja_46102VH1/Taimu%202104-10-10%2046102VH1%2026%20Pk%20Su.zip', # wrong date
 ]
 
 CHUNK_SIZE = 32*1024
@@ -51,8 +57,16 @@ class AhjoScanner(object):
         info_list = []
         for link_el in links:
             link = link_el.attrib['href']
+            if path in link and link.endswith('/'):
+                # Is a sub-directory
+                new_policymaker_id = link.strip('/').split('_')[-1].strip()
+                sub_list = self.scan_dir(link, new_policymaker_id)
+                info_list += sub_list
+                continue
+
             if not link.endswith('.zip'):
                 continue
+
             fname = link.split('/')[-1]
             fname = fname.replace('.zip', '')
             FIELD_NAMES = ("org", "date", "policymaker", "meeting_nr", "doc_type_id", "language")
@@ -88,6 +102,7 @@ class AhjoScanner(object):
             if info['origin_id'] in SKIP_DOC_LIST:
                 self.logger.warning("Skipping document on skip list: %s" % info['origin_id'])
                 continue
+
             info_list.append(info)
         return info_list
 

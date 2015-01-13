@@ -5,17 +5,17 @@ from ahjodoc.models import *
 from ahjodoc.api import *
 from munigeo.api import DistrictResource
 from django.templatetags.static import static
+from django.core.urlresolvers import get_script_prefix
 
 # Cache the JSON encodings for some rarely changing data here.
-policymaker_json = None
 category_json = None
 district_json = None
 
 def get_js_paths():
-    prefix = getattr(settings, 'URL_PREFIX', '')
+    prefix = get_script_prefix()
     debug = "true" if settings.DEBUG else "false"
     return {
-        'API_PREFIX': '/' + prefix,
+        'API_PREFIX': prefix,
         'GEOCODER_API_URL': settings.GEOCODER_API_URL,
         'DEBUG': debug
     }
@@ -36,10 +36,6 @@ def render_view(request, template, args={}):
     return render_to_response(template, args)
 
 def get_policymakers(request):
-    global policymaker_json
-
-    if policymaker_json:
-        return policymaker_json
     res = PolicymakerResource()
     pm_list = Policymaker.objects.filter(abbreviation__isnull=False)
     bundles = []
@@ -47,7 +43,6 @@ def get_policymakers(request):
         bundle = res.build_bundle(obj=obj, request=request)
         bundles.append(res.full_dehydrate(bundle, for_list=True))
     json = res.serialize(None, bundles, "application/json")
-    policymaker_json = json
     return json
 
 def get_categories(request):
@@ -155,9 +150,19 @@ def policymaker_list(request):
     return policymaker_view(request, 'policymaker.html')
 
 def policymaker_details(request, slug, year=None, number=None):
-    pm = get_object_or_404(Policymaker, slug=slug)
+    org = get_object_or_404(Organization, slug=slug)
     args = {}
-    args['policymaker'] = pm
+
+    res = OrganizationResource()
+    old_get = request.GET # argh
+    request.GET = dict(children='true') # argh2 
+    bundle = res.build_bundle(obj=org, request=request)
+    org_dict = res.full_dehydrate(bundle, for_list=False)
+    args['organization_json'] = res.serialize(None, org_dict, 'application/json')
+    request.GET = old_get
+
+    args['organization'] = org
+    args['policymaker'] = org.policymaker
     if year:
         args['meeting_year'] = year
         args['meeting_number'] = number

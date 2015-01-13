@@ -10,12 +10,13 @@ from django.db.models import Count, Sum
 from django.http import Http404
 from tastypie import fields
 from tastypie.resources import ModelResource
-from tastypie.exceptions import InvalidFilterError, BadRequest
+from tastypie.exceptions import InvalidFilterError, BadRequest, NotFound
 from tastypie.constants import ALL, ALL_WITH_RELATIONS
 from tastypie.cache import SimpleCache
 from tastypie.contrib.gis.resources import ModelResource as GeoModelResource
 from tastypie.utils import trailing_slash
 from ahjodoc.models import *
+from decisions.models import Organization
 from haystack.query import SearchQuerySet
 from haystack.utils.geo import Point as HaystackPoint
 
@@ -24,17 +25,32 @@ CACHE_TIMEOUT = 600
 class PolicymakerResource(ModelResource):
     def apply_filters(self, request, filters):
         qs = super(PolicymakerResource, self).apply_filters(request, filters)
+
+        # Do not show office holders by default
+        if request.GET.get('show_office_holders', '').lower() not in ('1', 'true'):
+            qs = qs.exclude(type='office_holder')
+
         meetings = request.GET.get('meetings', '')
         if meetings.lower() in ('1', 'true'):
             # Include only categories with associated issues
             qs = qs.annotate(num_meetings=Count('meeting')).filter(num_meetings__gt=0)
         return qs
+
+    def dehydrate(self, bundle):
+        obj = bundle.obj
+        org = obj.organization
+        bundle.data['org_type'] = org.type
+        bundle.data['dissolution_date'] = org.dissolution_date
+        bundle.data['founding_date'] = org.founding_date
+        return bundle
+
     class Meta:
-        queryset = Policymaker.objects.all()
+        queryset = Policymaker.objects.all().select_related('organization')
         resource_name = 'policymaker'
         filtering = {
             'abbreviation': ('exact', 'in', 'isnull'),
             'name': ALL,
+            'origin_id': ('exact', 'in'),
             'slug': ('exact', 'in')
         }
         ordering = ('name',)
@@ -152,7 +168,7 @@ class IssueResource(ModelResource):
 
     def apply_filters(self, request, applicable_filters):
         ret = super(IssueResource, self).apply_filters(request, applicable_filters)
-        for f in ('issuegeometry__in', 'districts__name', 'districts__type'):
+        for f in ('issuegeometry__in', 'districts__name', 'districts__type', 'geometries__isnull'):
             if f in applicable_filters:
                 ret = ret.distinct()
                 break
@@ -167,6 +183,10 @@ class IssueResource(ModelResource):
             bbox_filter = build_bbox_filter(filters['bbox'], 'geometry')
             geom_list = IssueGeometry.objects.filter(**bbox_filter)
             orm_filters['issuegeometry__in'] = geom_list
+
+        has_geometry = filters.get('has_geometry', '')
+        if has_geometry.lower() in ['1', 'true']:
+            orm_filters['geometries__isnull'] = False
 
         district_filters = ['districts__name', 'districts__type']
         for f in district_filters:
@@ -342,11 +362,12 @@ class AgendaItemResource(ModelResource):
         queryset = AgendaItem.objects.all().select_related('issue').select_related('category').select_related('attachments')
         resource_name = 'agenda_item'
         filtering = {
-            'meeting': ['exact', 'in'],
+            'meeting': ALL_WITH_RELATIONS,
             'issue': ['exact', 'in'],
             'issue__category': ['exact', 'in'],
             'last_modified_time': ['gt', 'gte', 'lt', 'lte'],
-            'from_minutes': ['exact']
+            'from_minutes': ['exact'],
+            'resolution': ['exact', 'isnull', 'in'],
         }
         ordering = ('last_modified_time', 'origin_last_modified_time', 'meeting', 'index')
         list_allowed_methods = ['get']
@@ -421,8 +442,80 @@ class VideoResource(ModelResource):
         detail_allowed_methods = ['get']
         cache = SimpleCache(timeout=CACHE_TIMEOUT)
 
+
+# Introduce a new version of ToManyField that keeps track if we're
+# dehydrating a nested resource (bundle.related) or not.
+class ToManyField(fields.ToManyField):
+    def dehydrate_related(self, bundle, related_resource, for_list=True):
+        """
+        Based on the ``full_resource``, returns either the endpoint or the data
+        from ``full_dehydrate`` for the related resource.
+        """
+        should_dehydrate_full_resource = self.should_full_dehydrate(bundle, for_list=for_list)
+
+        if not should_dehydrate_full_resource:
+            # Be a good netizen.
+            return related_resource.get_resource_uri(bundle)
+        else:
+            # ZOMG extra data and big payloads.
+            bundle = related_resource.build_bundle(
+                obj=related_resource.instance,
+                request=bundle.request,
+                objects_saved=bundle.objects_saved
+            )
+            bundle.related = True
+            return related_resource.full_dehydrate(bundle)
+
+class OrganizationResource(ModelResource):
+    parents = ToManyField('self', 'parents', full=True,
+                          full_detail=True, full_list=False)
+    policymaker = fields.ToOneField(PolicymakerResource, 'policymaker', full=False, null=True)
+
+    def _get_ancestors(self, org, id_list):
+        parents = org.parents.only('id')
+        for p in parents:
+            id_list.append(p.id)
+            self._get_ancestors(p, id_list)
+
+    def dehydrate(self, bundle):
+        if bundle.obj.policymaker:
+            bundle.data['policymaker_slug'] = bundle.obj.policymaker.slug
+        children = bundle.request.GET.get('children', '')
+        if children.lower() in ['1', 'true'] and not hasattr(bundle, 'related'):
+            bundles = []
+            children_list = bundle.obj.all_children.all()
+            req = bundle.request
+            for obj in children_list:
+                c_bundle = self.build_bundle(obj=obj, request=req)
+                c_bundle.related = True
+                bundles.append(self.full_dehydrate(c_bundle, for_list=True))
+            bundle.data['children'] = bundles
+
+        return bundle
+
+    def apply_filters(self, request, filters):
+        qs = super(OrganizationResource, self).apply_filters(request, filters)
+
+        show_dissolved = request.GET.get('show_dissolved', '').lower()
+        if show_dissolved not in ('1', 'true'):
+            qs = qs.filter(dissolution_date=None)
+
+        return qs
+
+    class Meta:
+        queryset = Organization.objects.all().select_related('policymaker')
+        excludes = ['name', 'start_date', 'end_date']
+        filtering = {
+            'origin_id': ALL,
+            'abbreviation': ALL,
+            'name': ALL,
+        }
+        list_allowed_methods = ['get']
+        detail_allowed_methods = ['get']
+        cache = SimpleCache(timeout=CACHE_TIMEOUT)
+
 all_resources = [
     MeetingDocumentResource, PolicymakerResource, CategoryResource,
     MeetingResource, IssueResource, AgendaItemResource, AttachmentResource,
-    VideoResource
+    VideoResource, OrganizationResource
 ]

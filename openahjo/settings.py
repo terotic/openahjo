@@ -24,6 +24,9 @@ DATABASES = {
     }
 }
 
+# Keep the database connection open for 120s
+CONN_MAX_AGE = 120
+
 CACHES = {
     'default': {
         'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
@@ -46,6 +49,10 @@ TIME_ZONE = 'Europe/Helsinki'
 # Language code for this installation. All choices can be found here:
 # http://www.i18nguy.com/unicode/language-identifiers.html
 LANGUAGE_CODE = 'fi'
+LANGUAGES = (
+    ('fi', 'Finnish'),
+    ('sv', 'Swedish'),
+)
 
 SITE_ID = 1
 
@@ -122,7 +129,7 @@ ROOT_URLCONF = 'openahjo.urls'
 WSGI_APPLICATION = 'openahjo.wsgi.application'
 
 TEMPLATE_DIRS = (
-    os.path.join(PROJECT_ROOT, 'templates')
+    os.path.join(PROJECT_ROOT, 'templates'),
 )
 
 INSTALLED_APPS = (
@@ -139,15 +146,17 @@ INSTALLED_APPS = (
     # 'django.contrib.admindocs',
     'tastypie_swagger',
     'corsheaders',
+    'popolo',
     'tastypie',
     'compressor',
     'mptt',
-    'south',
     'haystack',
     'django_extensions',
+    'modeltranslation',
     'munigeo',
 
     'ahjodoc',
+    'decisions',
     'ui',
 )
 
@@ -208,9 +217,14 @@ AHJO_PATHS = {
 # Use WGS84 coordinate system internally.
 PROJECTION_SRID = 4326
 
+# Set to quelch a warning
+TEST_RUNNER = "django.test.runner.DiscoverRunner"
+
 TASTYPIE_DEFAULT_FORMATS = ['json']
 
 GEOCODER_API_URL = "http://dev.hel.fi/geocoder/"
+
+POPOLO_APP_NAME = 'decisions'
 
 # local_settings.py can be used to override environment-specific settings
 # like database and email that differ between development and production.
@@ -218,3 +232,4 @@ try:
     from local_settings import *
 except ImportError:
     pass
+

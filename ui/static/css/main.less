@@ -72,28 +72,32 @@ input[type="color"],
 /** HACK to make Chosen responsive + match Bootstrap style**/
 
 .chosen-container {
-      width:100%!important;
-      .chosen-search {
-          input[type='text'] {
-              padding:2px 4%!important;
-              width:90%!important;
-              margin:5px 2%;
-          }
-      }
-      .chosen-single {
-          padding:10px 1%;
-      }
-      .chosen-drop {
-          width:100%!important;
-      }
-      .chosen-choices {
-        border-color: rgba(85,192,180,.8);
+    width:100%!important;
+    .chosen-search {
+        input[type='text'] {
+            padding:2px 4%!important;
+            width:90%!important;
+            margin:5px 2%;
+        }
+    }
+    .chosen-single {
+        padding:10px 1%;
+    }
+    .chosen-drop {
+        width:100%!important;
+    }
+    .chosen-choices {
         border-radius: 4px;
-        .box-shadow(~"inset 0 1px 1px rgba(0,0,0,.075), 0 0 8px rgba(85,192,180,.6)");
-        -webkit-transition: border-color ease-in-out .15s, box-shadow ease-in-out .15s;
-        transition: border-color ease-in-out .15s, box-shadow ease-in-out .15s;
-        } 
-  }
+    }
+    &.chosen-container-active {
+        .chosen-choices {
+            border-color: rgba(85,192,180,.8);
+            .box-shadow(~"inset 0 1px 1px rgba(0,0,0,.075), 0 0 8px rgba(85,192,180,.6)");
+            -webkit-transition: border-color ease-in-out .15s, box-shadow ease-in-out .15s;
+            transition: border-color ease-in-out .15s, box-shadow ease-in-out .15s;
+        }
+    }
+}
 
 
 footer {
@@ -616,7 +620,6 @@ ul.issue-list-items {
 }
 
 .decision-history {
-    border-bottom: @org_color_6 3px solid;
     margin-bottom: 24px;
 }
 
@@ -880,17 +883,22 @@ li.breadcrumb-officer a:after { border-left-color: @org_color_3; }
     display: block;
     .make-md-column(4);
     margin-bottom: 15px;
-  a {
+
+    a {
         display: block;
         padding: 5px;
-        background: @org_color_3;
+        background: #666;
         height: 100px;
         color: #FFF;
-  }
-  a:hover {
-      background: @org_color_2;
-      text-decoration: none;
-  }
+    }
+    a:hover {
+        background: @org_color_2;
+        text-decoration: none;
+    }
+    &.has-decisions a {
+        background: @org_color_3;
+    }
+
 }
 
 /* /Policymaker organisation */
@@ -982,32 +990,23 @@ li.breadcrumb-officer a:after { border-left-color: @org_color_3; }
         font-weight: 700;
         margin-top: 24px;
     }
-    .row {
-        .make-row();
-        margin-bottom: 16px;
-    }
     .org-box .content {
         .clearfix();
         height: 120px;
         cursor: pointer;
+        margin-bottom: 16px;
     }
-    
-    .span3 {
-      .make-md-column(4);
-    }
-  
-    .span9 {
-      .make-md-column(12);
-      //.make-md-column-offset(1);
-    }
-    .span3 .content h3 {
-        width: 220px - 48px - 16px;
-    }
+
     .content {
-        padding-left: 16px;
-        padding-top: 16px;
-        padding-bottom: 16px;
+        display: block;
+        padding: 16px;
+        &:hover, &:focus {
+            text-decoration: none;
+        }
         .clearfix();
+        .name-icon {
+            .clearfix();
+        }
         h3 {
             color: black;
             font-size: 24px;
@@ -1015,13 +1014,16 @@ li.breadcrumb-officer a:after { border-left-color: @org_color_3; }
             line-height: 28px;
             margin: 0px;
             display: block;
-            float: left;
         }
         i {
             color: black;
             float: right;
+            width: 24px;
             font-size: 24px;
-            margin-right: 16px;
+        }
+        .org-hierarchy {
+            color: #555;
+            font-size: 18px;
         }
     }
 
@@ -1040,17 +1042,20 @@ li.breadcrumb-officer a:after { border-left-color: @org_color_3; }
     .council > .content{
         .org-type-box(@org_color_1);
     }
-    .government > .content {
+    .board > .content {
         .org-type-box(@org_color_2);
     }
     .committee > .content {
         .org-type-box(@org_color_3);
     }
-    .board > .content {
+    .board_division > .content {
         .org-type-box(@org_color_4);
     }
-    .other > .content {
+    .office_holder > .content {
         .org-type-box(@org_color_5);
+    }
+    .other > .content {
+        .org-type-box(@org_color_6);
     }
 }
 

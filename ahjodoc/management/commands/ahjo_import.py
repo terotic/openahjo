@@ -12,14 +12,16 @@ from django.core.management.base import BaseCommand
 from django import db
 from django.conf import settings
 from django.db import transaction
+from django.utils.text import slugify
 
 from munigeo.models import District
+from decisions.models import Organization
 
 from ahjodoc.scanner import AhjoScanner
 from ahjodoc.doc import AhjoDocument, ParseError
 from ahjodoc.models import *
 from ahjodoc.geo import AhjoGeocoder
-from ahjodoc.video import get_videos_for_meeting, open_video, get_video_frame
+from ahjodoc.video import get_videos_for_meeting, VideoFile
 from ahjodoc.utils import download_file
 
 class Command(BaseCommand):
@@ -179,13 +181,26 @@ class Command(BaseCommand):
         d = [int(x) for x in info['date'].split('-')]
         doc_date = datetime.date(*d)
 
-        policymaker = Policymaker.objects.get(origin_id=info['policymaker_id'])
-        args = {'policymaker': policymaker, 'number': info['meeting_nr'],
-                'year': doc_date.year}
+        try:
+            policymaker = Policymaker.objects.get(origin_id=info['policymaker_id'])
+        except Policymaker.DoesNotExist:
+            org = Organization.objects.get(origin_id=info['policymaker_id'])
+            print "Creating new policymaker for %s" % org
+            args = {'name': org.name_fi, 'abbreviation': org.abbreviation,
+                    'type': org.type, 'origin_id': info['policymaker_id']}
+            policymaker = Policymaker(**args)
+            policymaker.slug = org.slug
+            policymaker.save()
+            org.policymaker = policymaker
+            org.save(update_fields=['policymaker'])
+
         if not policymaker.abbreviation and 'policymaker_abbr' in info:
             self.logger.info("Saving abbreviation '%s' for %s" % (info['policymaker_abbr'], policymaker))
             policymaker.abbreviation = info['policymaker_abbr']
             policymaker.save()
+
+        args = {'policymaker': policymaker, 'number': info['meeting_nr'],
+                'year': doc_date.year}
         try:
             meeting = Meeting.objects.get(**args)
         except Meeting.DoesNotExist:
@@ -199,7 +214,15 @@ class Command(BaseCommand):
         doc.policymaker = info['policymaker']
         doc.date = doc_date
         if str(meeting.date) != str(doc.date):
-            raise Exception("Date mismatch between doc and meeting (%s vs. %s)" % (meeting.date, doc.date))
+            # If the new meeting date comes from a document with the latest modification
+            # time, assume the earlier meeting date is incorrect. Otherwise, bail out.
+            latest_doc = meeting.meetingdocument_set.order_by('-last_modified_time')[0]
+            if info['last_modified'] > latest_doc.last_modified_time:
+                self.logger.warning("Fixing date mismatch between doc and meeting (%s vs. %s)" % (meeting.date, doc.date))
+                meeting.date = doc.date
+                meeting.save(update_fields=['date'])
+            else:
+                raise Exception("Date mismatch between doc and meeting (%s vs. %s)" % (meeting.date, doc.date))
         doc.meeting_nr = info['meeting_nr']
         doc.origin_url = info['url']
 
@@ -257,7 +280,7 @@ class Command(BaseCommand):
         if not self.options['no_videos']:
             self.import_videos(meeting)
 
-    def get_video_screenshot(self, video, video_stream):
+    def get_video_screenshot(self, video, video_file):
         meeting_id = '%d-%d' % (video.meeting.number, video.meeting.year)
         path = os.path.join(self.video_path, meeting_id)
         if not os.path.exists(path):
@@ -271,8 +294,7 @@ class Command(BaseCommand):
             pos = video.start_pos + video.duration / 2.0
 
         self.logger.debug("Fetching screenshot as %s" % fname)
-        ss_img = get_video_frame(video_stream, pos)
-        ss_img.save(os.path.join(path, fname))
+        video_file.take_screenshot(pos, os.path.join(path, fname))
         video.screenshot = os.path.join(settings.AHJO_PATHS['video'], meeting_id, fname)
 
     def download_video(self, url):
@@ -287,6 +309,10 @@ class Command(BaseCommand):
         # Only Kaupunginvaltuusto supported for now.
         if meeting.policymaker.origin_id != '02900':
             return
+        # FIXME: Broken in API
+        if meeting.year == 2014 and meeting.number == 3:
+            return
+
         self.logger.debug("Checking for videos for %s" % meeting)
         meeting_info = {'year': meeting.year, 'nr': meeting.number}
         video_info = get_videos_for_meeting(meeting_info)
@@ -302,9 +328,9 @@ class Command(BaseCommand):
         video.url = video_info['video']['http_url']
 
         video_fname = self.download_video(video.url)
-        video_stream = open_video(video_fname)
-        video.duration = video_stream.duration
-        self.get_video_screenshot(video, video_stream)
+        video_file = VideoFile(video_fname)
+        video.duration = video_file.get_duration()
+        self.get_video_screenshot(video, video_file)
         video.save()
         ai_list = AgendaItem.objects.filter(meeting=meeting).order_by('index')
         if self.verbosity >= 2:
@@ -369,7 +395,7 @@ class Command(BaseCommand):
                         video.duration = vid_list[idx+1]['start_pos'] - video.start_pos
                     else:
                         video.duration = 0
-                self.get_video_screenshot(video, video_stream)
+                self.get_video_screenshot(video, video_file)
                 video.save()
 
     def import_categories(self):
@@ -476,8 +502,8 @@ class Command(BaseCommand):
 
         plan_path = os.path.join(self.data_path, 'plans')
         if os.path.isdir(plan_path) and not options['no_geocoding']:
-            self.geocoder.load_plans(os.path.join(plan_path, 'Kaava_Vireilla.tab'))
-            self.geocoder.load_plans(os.path.join(plan_path, 'Kaava_Voimassa.tab'))
+            self.geocoder.load_plans(os.path.join(plan_path, 'Kaava_Vireilla.tab'), in_effect=False)
+            self.geocoder.load_plans(os.path.join(plan_path, 'Kaava_Voimassa.tab'), in_effect=True)
             self.geocode_plans = True
         else:
             print "Plan database not found; plan geocoding not available."
@@ -486,7 +512,7 @@ class Command(BaseCommand):
         property_path = os.path.join(self.data_path, 'properties')
         if os.path.isdir(property_path) and not options['no_geocoding']:
             self.geocoder.load_plan_units(os.path.join(property_path, 'Kaava_kaavayksikko_Voimassa.tab'))
-            self.geocoder.load_properties(os.path.join(property_path, 'GISestx.csv'))
+            self.geocoder.load_properties(os.path.join(property_path, 'kiinteistoalueet.tab'))
             self.geocode_plan_units = True
         else:
             print "Plan unit database not found; plan unit geocoding not available."
@@ -515,6 +541,9 @@ class Command(BaseCommand):
                     options['start_from'] = ''
                 else:
                     continue
+
+            #if not 'VH' in info['policymaker_id']:
+            #    continue
 
             if options['policymaker_id'] and info['policymaker_id'] != options['policymaker_id']:
                 continue

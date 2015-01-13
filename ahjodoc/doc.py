@@ -20,7 +20,7 @@ def clean_text(text):
     return re.sub(r'\s\s+', ' ', text, re.U).strip()
 
 class AhjoDocument(object):
-    ATTACHMENT_EXTS = ('pdf', 'xls', 'ppt', 'doc', 'docx', 'png')
+    ATTACHMENT_EXTS = ('pdf', 'xls', 'ppt', 'doc', 'docx', 'png', 'jpg', 'gif', 'txt')
 
     def __init__(self, verbosity=1, options={}):
         self.verbosity = verbosity
@@ -134,9 +134,10 @@ class AhjoDocument(object):
         for section_el in section_el_list:
             s = section_el.attrib.get('sisaltosektioTyyppi')
             if not s:
-                self.logger.warning("attribute sisaltosektioTyyppi not found")
+                if info.get('type', None) != 'officeholder_decision':
+                    self.logger.warning("attribute sisaltosektioTyyppi not found")
                 subj_el = section_el.find('SisaltoOtsikko')
-                if not subj_el:
+                if subj_el == None:
                     continue
                 s = subj_el.attrib['SisaltoOtsikkoTyyppi']
                 if not s:
@@ -152,6 +153,10 @@ class AhjoDocument(object):
             subject = section_el.find('SisaltoOtsikko').text
             if subject:
                 subject = subject.encode('utf8')
+                if subject.lower() == 'esittelijän perustelut':
+                    subject = 'Esittelijä'
+                elif subject.lower() == 'päätöksen perustelut':
+                    subject = 'paatoksenperustelut'
                 if subject.replace('ä', 'a').replace('ö', 'o').lower() != s:
                     self.logger.warning("Unexpected section header: %s, expected: %s" % (subject, s))
             text_section = section_el.find('TekstiSektio')
@@ -199,6 +204,19 @@ class AhjoDocument(object):
         desc_el = item_el.find('KuvailutiedotOpenDocument')
         if not desc_el:
             raise ParseError("Field KuvailutiedotOpenDocument missing")
+
+        doc_type = desc_el.find('AsiakirjaTyyppi')
+        if doc_type != None:
+            doc_type = doc_type.text
+        if doc_type == u'päätös':
+            info['type'] = 'decision'
+        elif doc_type == u'esitys':
+            info['type'] = 'proposal'
+        elif doc_type == u'viranhaltijan päätös':
+            info['type'] = 'officeholder_decision'
+        elif doc_type:
+            raise ParseError("Invalid item type: %s" % doc_type)
+
         lang_el = desc_el.find('Kieli')
         if lang_el is not None:
             lang_id = lang_el.attrib['KieliID']
@@ -343,7 +361,7 @@ class AhjoDocument(object):
 
         name_list = self.zip_file.namelist()
         names = [x for x in name_list if att['id'] in x]
-        if len(names) != 1:
+        if not len(names):
             raise ParseError("Attachment %s not found in ZIP file" % att['id'])
         zip_info = self.zip_file.getinfo(names[0])
 

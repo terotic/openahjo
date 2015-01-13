@@ -4,6 +4,7 @@ from django.core.urlresolvers import reverse
 from django.conf import settings
 from django.contrib.gis.db import models
 from django.utils.text import slugify
+from django.db.models.loading import get_model
 from mptt.models import MPTTModel, TreeForeignKey
 from munigeo.models import District
 from django.utils.html import strip_tags
@@ -20,15 +21,45 @@ def truncate_chars(value, max_length):
 
 class Policymaker(models.Model):
     name = models.CharField(max_length=100, help_text='Name of policymaker')
+    unit = models.CharField(max_length=100, help_text='Policymaker unit')
+    division = models.CharField(max_length=100, help_text='Policymaker division')
+    department = models.CharField(max_length=100, help_text='Policymaker department')
     abbreviation = models.CharField(max_length=20, null=True, help_text='Official abbreviation')
     slug = models.CharField(max_length=50, db_index=True, unique=True, null=True, help_text='Unique slug')
     origin_id = models.CharField(max_length=20, db_index=True, help_text='ID string in upstream system')
     summary = models.TextField(null=True)
+    type = models.CharField(max_length=30)
 
     def save(self, *args, **kwargs):
         if not self.slug and self.abbreviation:
-            self.slug = slugify(unicode(self.abbreviation))
+            slug_base = slugify(unicode(self.abbreviation))
+            self.slug = slug_base
+            for i in range(2, 10):
+                if not Policymaker.objects.filter(slug=self.slug).exists():
+                    break
+                self.slug = '%s-%d' % (slug_base, i)
+
         return super(Policymaker, self).save(*args, **kwargs)
+
+    def determine_org(self):
+        pm_org = self.organization
+        if not pm_org:
+            return
+
+        type_orgs = {}
+        types = ['division', 'department', 'unit']
+
+        def check_org(org):
+            if org.type in types:
+                assert org.type not in type_orgs
+                type_orgs[org.type] = org
+            for p in org.parents.all():
+                check_org(p)
+
+        check_org(pm_org)
+
+        for t, val in type_orgs.items():
+            setattr(self, t, val.name_fi)
 
     def __unicode__(self):
         return self.name
@@ -39,13 +70,13 @@ class Meeting(models.Model):
     number = models.PositiveIntegerField(help_text='Meeting number for the policymaker')
     year = models.PositiveIntegerField(help_text='Year the meeting is held')
     issues = models.ManyToManyField('Issue', through='AgendaItem')
-    minutes = models.BooleanField(help_text='Meeting minutes document available')
+    minutes = models.BooleanField(default=False, help_text='Meeting minutes document available')
 
     def __unicode__(self):
         return u"%s %d/%d (%s)" % (self.policymaker, self.number, self.year, self.date) 
 
     class Meta:
-        unique_together = (('policymaker', 'date'), ('policymaker', 'year', 'number'))
+        unique_together = (('policymaker', 'year', 'number'),)
 
 class MeetingDocument(models.Model):
     meeting = models.ForeignKey(Meeting)
@@ -186,7 +217,7 @@ class AgendaItem(models.Model):
     issue = models.ForeignKey(Issue, db_index=True, help_text='Issue for the item')
     index = models.PositiveIntegerField(help_text='Item number on the agenda')
     subject = models.CharField(max_length=500, help_text='One-line description for agenda item')
-    from_minutes = models.BooleanField(help_text='Do the contents come from the minutes document?')
+    from_minutes = models.BooleanField(default=False, help_text='Do the contents come from the minutes document?')
     last_modified_time = models.DateTimeField(db_index=True, auto_now=True, help_text='Time of last modification')
     origin_last_modified_time = models.DateTimeField(db_index=True, null=True, help_text='Time of last modification in data source')
     resolution = models.CharField(max_length=20, choices=RESOLUTION_CHOICES, null=True, help_text="Type of resolution made")
@@ -247,7 +278,7 @@ class Attachment(models.Model):
     agenda_item = models.ForeignKey(AgendaItem, db_index=True)
     number = models.PositiveIntegerField(help_text='Index number of the item attachment')
     name = models.CharField(max_length=400, null=True, help_text='Short name for the agenda item')
-    public = models.BooleanField(help_text='Is attachment public?')
+    public = models.BooleanField(default=False, help_text='Is attachment public?')
     file = models.FileField(upload_to=settings.AHJO_PATHS['attachment'], null=True)
     hash = models.CharField(max_length=50, null=True, help_text='SHA-1 hash of the file contents')
     file_type = models.CharField(max_length=10, null=True, help_text='File extension')

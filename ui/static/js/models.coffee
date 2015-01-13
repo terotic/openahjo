@@ -34,8 +34,13 @@ class @IssueList extends Backbone.Tastypie.Collection
     urlRoot: API_PREFIX + 'v1/issue/'
     model: Issue
 
-class @IssueSearchList extends IssueList
+class @IssueSearchList extends Backbone.Tastypie.Collection
     urlRoot: API_PREFIX + 'v1/issue/search/'
+    model: Issue
+
+    constructor: (models, options) ->
+        super models, options
+        @filters['order_by'] = '-latest_decision_date'
 
     set_filter: (type, val) ->
         filter_name = type
@@ -157,18 +162,12 @@ class @Policymaker extends Backbone.Tastypie.Model
         return VIEW_URLS['policymaker-details'].replace 'ID', @get('slug')
     get_category: ->
         abbrev = @get('abbreviation')
-        if not abbrev
-            return null
-        if abbrev == 'Khs'
-            return 'government'
-        else if abbrev == 'Kvsto'
-            return 'council'
-        name = @get('name')
-        if name.indexOf('lautakunta') >= 0
-            return 'committee'
-        if name.indexOf('johtokunta') >= 0 or name.indexOf(' jk') >= 0
-            return 'board'
-        return 'other'
+        ALLOWED_TYPES = ['board', 'division', 'council', 'board_division',
+                         'office_holder', 'committee']
+        if @get('org_type') in ALLOWED_TYPES
+            return @get 'org_type'
+        else
+            return 'other'
 
     get_icon: ->
         pm_info = POLICYMAKERS[@get 'abbreviation']
@@ -201,3 +200,17 @@ class @District extends Backbone.Tastypie.Model
 class @DistrictList extends Backbone.Tastypie.Collection
     urlRoot: API_PREFIX + 'v1/district'
     model: District
+
+
+class @Organization extends Backbone.Tastypie.Model
+    url: ->
+        API_PREFIX + 'v1/organization/' + encodeURIComponent(@.get 'id') + '/'
+    toJSON: (opts) ->
+        ret = super opts
+        for c in ret['children']
+            c.view_url = VIEW_URLS['policymaker-details'].replace 'ID', c.slug
+        return ret
+
+class @OrganizationList extends Backbone.Tastypie.Collection
+    urlRoot: API_PREFIX + 'v1/organization/'
+    model: Organization
