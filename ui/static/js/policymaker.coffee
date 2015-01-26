@@ -62,6 +62,16 @@ class PolicymakerListNavView extends Backbone.View
         @$el.find('li.' + category).addClass 'active'
         @active_category = category
 
+class PolicymakerSearchView extends Backbone.View
+    tagName: 'div'
+    className: 'policymaker-search'
+    template: _.template $("#policymaker-search-template").html()
+    
+    render: ->
+      html = @template
+      @$el.append html
+      return @
+    
 class PolicymakerListItemView extends Backbone.View
     tagName: 'li'
     className: 'org-box'
@@ -127,7 +137,7 @@ class PolicymakerListView extends Backbone.View
             if big
                 $el.addClass 'col-md-12'
             else
-                $el.addClass 'col-md-6 col-lg-4'
+                $el.addClass 'col-md-12'
             $row.append view.$el
 
         $container.append $row
@@ -135,13 +145,18 @@ class PolicymakerListView extends Backbone.View
     render: ->
         @$el.empty()
 
+        @$el.append $("<h5>SEARCH HERE</h5>")
+
+        searcher = new PolicymakerSearchView
+        @$el.append searcher.render().$el
+        
         active = @collection.filter (m) -> not m.get 'dissolution_date'
 
         council = _.filter active, (m) -> m.get_category() == 'council'
-        @render_pm_section council, null, true, 'council'
+        @render_pm_section council, "Valtuusto", true, 'council'
 
         gov = _.filter active, (m) -> m.get_category() == 'board'
-        @render_pm_section gov, null, true, 'board'
+        @render_pm_section gov, "Hallitus", true, 'board'
 
         committees = _.filter active, (m) -> m.get_category() in ['committee', 'board_division']
         @render_pm_section committees, "Lautakunnat ja jaostot", false, 'committee'
