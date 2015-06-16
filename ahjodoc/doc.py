@@ -20,7 +20,7 @@ def clean_text(text):
     return re.sub(r'\s\s+', ' ', text, re.U).strip()
 
 class AhjoDocument(object):
-    ATTACHMENT_EXTS = ('pdf', 'xls', 'ppt', 'doc', 'docx', 'png', 'jpg', 'gif', 'txt')
+    ATTACHMENT_EXTS = ('pdf', 'xls', 'xlsx', 'ppt', 'doc', 'docx', 'png', 'jpg', 'gif', 'txt', 'msg')
 
     def __init__(self, verbosity=1, options={}):
         self.verbosity = verbosity
@@ -78,7 +78,9 @@ class AhjoDocument(object):
                 raise ParseError("Unexpected text section container: %s" % ch.tag)
             paras = ch.getchildren()
             for p in paras:
-                if p.tag not in ('Kappale', 'Otsikko', 'Henkilotietoa', 'Salassapidettava', 'XHTML', 'HenkilotietoaXHTML', 'Kuva'):
+                if p.tag not in ('Kappale', 'Otsikko', 'Henkilotietoa',
+                                 'Salassapidettava', 'XHTML', 'HenkilotietoaXHTML',
+                                 'Kuva', 'Korjauskappale'):
                     raise ParseError("Unsupported paragraph tag: %s", p.tag)
                 if p.tag == 'Kappale':
                     for pch in p.getchildren():
@@ -98,6 +100,8 @@ class AhjoDocument(object):
                     content.append(u'<h3>%s</h3>' % clean_text(p.text))
                 elif p.tag in ('Henkilotietoa', 'HenkilotietoaXHTML'):
                     content.append(u'<span class="redacted-personal-information">*****</span>')
+                elif p.tag == 'Korjauskappale':
+                    content.append(u'<p class="correction">%s</p>' % clean_text(p.text))
                 elif p.tag == 'Salassapidettava':
                     content.append(u'<p class="redacted-information">*****</p>')
                 elif p.tag == 'XHTML':
@@ -157,8 +161,17 @@ class AhjoDocument(object):
                     subject = 'Esittelijä'
                 elif subject.lower() == 'päätöksen perustelut':
                     subject = 'paatoksenperustelut'
+                elif subject.lower() == 'päätösehdotus':
+                    subject = 'esitysehdotus'
                 if subject.replace('ä', 'a').replace('ö', 'o').lower() != s:
                     self.logger.warning("Unexpected section header: %s, expected: %s" % (subject, s))
+                    # In the case of mismatch, override the section name
+                    # based on what kind of document we're parsing (minutes or
+                    # agenda).
+                    if self.type == 'agenda':
+                        if section_type == 'resolution':
+                            section_type = 'draft resolution'
+
             text_section = section_el.find('TekstiSektio')
             if not text_section:
                 # If it's an empty content section, skip it.
@@ -174,8 +187,13 @@ class AhjoDocument(object):
             d = {'number': int(att_el.find('Liitenumero').text)}
             id_el = att_el.find('LiitteetId')
             att_list.append(d)
-            if id_el == None:
+            if id_el is None:
                 d['public'] = False
+                reason_el = att_el.find('SalassapitoOptio')
+                if reason_el is not None:
+                    reason_el = reason_el.find('SalassapidonPerustelut')
+                    if reason_el is not None:
+                        d['confidentiality_reason'] = clean_text(reason_el.text)
                 continue
             else:
                 d['public'] = True
@@ -206,7 +224,7 @@ class AhjoDocument(object):
             raise ParseError("Field KuvailutiedotOpenDocument missing")
 
         doc_type = desc_el.find('AsiakirjaTyyppi')
-        if doc_type != None:
+        if doc_type is not None:
             doc_type = doc_type.text
         if doc_type == u'päätös':
             info['type'] = 'decision'
@@ -227,9 +245,6 @@ class AhjoDocument(object):
             print "Invalid language: %s" % lang_id
             return False
         register_id_el = desc_el.find('Dnro')
-        # If archive id was not found, skip item.
-        if not register_id_el:
-            return False
 
         subject = clean_text(desc_el.find('Otsikko').text)
         if subject.startswith('V '):
@@ -246,8 +261,16 @@ class AhjoDocument(object):
         if self.verbosity >= 2:
             self.logger.debug('Parsing item: %s' % info['subject'])
 
-        info['register_id'] = register_id_el.find('DnroLyhyt').text.strip()
-        info['category'] = desc_el.find('Tehtavaluokka').text.strip()
+        if register_id_el:
+            info['register_id'] = register_id_el.find('DnroLyhyt').text.strip()
+        else:
+            info['register_id'] = None
+
+        cat_el = desc_el.find('Tehtavaluokka')
+        if cat_el is not None:
+            info['category'] = cat_el.text.strip()
+        else:
+            info['category'] = None
 
         references = desc_el.find('Viite')
         if references is not None:

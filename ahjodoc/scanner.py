@@ -15,6 +15,7 @@ SKIP_DOC_LIST = [
     'Opev_SKJ_2013-2_El',
     'HKR_Ytlk_2013-18_El',
     'Ymk_Ylk_2013-1_El',
+    'Ork_Orkjk_2014-4_Pk', # HEL 2014-011315 processed twice
     'Rakpa_Tplk_2013-1_Pk', # KuvailutiedotOpenDocument missing
     'Halke_Khs_2012-27_Pk', # Attachment missing
     'Halke_Khs_2012-26_Pk', # Attachment missing
@@ -35,6 +36,7 @@ SKIP_URL_LIST = [
     'http://openhelsinki.hel.fi/files/Liikuntalautakunta_47100/Liv%202014-10-23%20LILK%2011%20El%20Su.zip', # wrong meeting id
     'http://openhelsinki.hel.fi/files/Liikuntalautakunta_47100/Liv%202014-10-07%20LILK%2015%20El%20Su.zip', # wrong meeting id
     'http://openhelsinki.hel.fi/files/Taidemuseo_46102/Museonjohtaja_46102VH1/Taimu%202104-10-10%2046102VH1%2026%20Pk%20Su.zip', # wrong date
+    'http://openhelsinki.hel.fi/files/Rakennusvirasto_52000/Tulosryhman%20johtaja_521112VH1/HKR%202014-12-16%20521112VH1%2012%20Pk%20Su.zip', # wrong date
 ]
 
 CHUNK_SIZE = 32*1024

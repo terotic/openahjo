@@ -214,7 +214,7 @@ class AgendaItem(models.Model):
         (ELECTION, 'Election'),
     )
     meeting = models.ForeignKey(Meeting, db_index=True, help_text='Meeting for the agenda item')
-    issue = models.ForeignKey(Issue, db_index=True, help_text='Issue for the item')
+    issue = models.ForeignKey(Issue, db_index=True, null=True, help_text='Issue for the item')
     index = models.PositiveIntegerField(help_text='Item number on the agenda')
     subject = models.CharField(max_length=500, help_text='One-line description for agenda item')
     from_minutes = models.BooleanField(default=False, help_text='Do the contents come from the minutes document?')
@@ -252,15 +252,23 @@ class AgendaItem(models.Model):
         return text
 
     def get_absolute_url(self):
-        return reverse('ui.views.issue_details', kwargs={'slug': self.issue.slug})
+        if self.issue is None:
+            return None
+        pm = self.meeting.policymaker
+        args = dict(slug=self.issue.slug, pm_slug=pm.slug, year=self.meeting.year,
+                    number=self.meeting.number)
+        return reverse('ui.views.issue_details', kwargs=args)
 
     def save(self, *args, **kwargs):
         ret = super(AgendaItem, self).save(*args, **kwargs)
-        issue = self.issue
-        subject = issue.determine_subject()
-        if subject != issue.subject:
-            issue.subject = subject
-            issue.save()
+
+        if self.issue is not None:
+            issue = self.issue
+            subject = issue.determine_subject()
+            if subject != issue.subject:
+                issue.subject = subject
+                issue.save(update_fields=['subject'])
+
         return ret
 
     def __unicode__(self):
@@ -271,7 +279,7 @@ class AgendaItem(models.Model):
             return u"%s / #%d: %s" % (self.meeting, self.index, self.subject)
 
     class Meta:
-        unique_together = (('meeting', 'issue'), ('meeting', 'index'))
+        unique_together = (('meeting', 'index'),)
         ordering = ('meeting', 'index')
 
 class Attachment(models.Model):
@@ -279,9 +287,14 @@ class Attachment(models.Model):
     number = models.PositiveIntegerField(help_text='Index number of the item attachment')
     name = models.CharField(max_length=400, null=True, help_text='Short name for the agenda item')
     public = models.BooleanField(default=False, help_text='Is attachment public?')
+    confidentiality_reason = models.CharField(max_length=100, null=True, blank=True,
+                                              help_text='Reason for keeping the attachment confidential')
     file = models.FileField(upload_to=settings.AHJO_PATHS['attachment'], null=True)
     hash = models.CharField(max_length=50, null=True, help_text='SHA-1 hash of the file contents')
     file_type = models.CharField(max_length=10, null=True, help_text='File extension')
+
+    def __unicode__(self):
+        return u"%s: attachment %d: %s" % (self.agenda_item, self.number, self.name)
 
     class Meta:
         unique_together = (('agenda_item', 'number'),)
